@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BI de Internações (Sintético) - Hospital Serra do Mel (Jul/Ago 2025)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .chart-container {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .kpi-card {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .modal-container {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-content {
+            padding: 1.5rem;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">Painel de Internações (Sintético)</h1>
+                    <p class="text-gray-500 mt-1">Análise por Tipo de Leito | 21 de Julho a 08 de Agosto de 2025 - Hospital Serra do Mel</p>
+                </div>
+                <button id="generate-insights-btn" class="mt-4 md:mt-0 bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center gap-2">
+                    ✨ Gerar Relatório de Insights
+                </button>
+            </div>
+        </header>
+
+        <!-- KPIs -->
+        <div id="kpi-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="kpi-card">
+                <h3 class="text-gray-500 font-medium">Total de Internações</h3>
+                <p id="total-internacoes" class="text-4xl font-bold text-blue-600">0</p>
+            </div>
+            <div class="kpi-card">
+                <h3 class="text-gray-500 font-medium">Total de Óbitos</h3>
+                <p id="total-obitos" class="text-4xl font-bold text-red-600">0</p>
+            </div>
+            <div class="kpi-card">
+                <h3 class="text-gray-500 font-medium">Taxa de Mortalidade</h3>
+                <p id="taxa-mortalidade" class="text-4xl font-bold text-orange-500">0%</p>
+            </div>
+             <div class="kpi-card">
+                <h3 class="text-gray-500 font-medium">Leito com Mais Internações</h3>
+                <p id="leito-mais-mov" class="text-2xl font-bold text-purple-600 truncate">N/A</p>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="chart-container">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Internações por Tipo de Leito</h2>
+                <canvas id="internacoesPorLeitoChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Média de Permanência por Leito (em Horas)</h2>
+                <canvas id="permanenciaPorLeitoChart"></canvas>
+            </div>
+            <div class="chart-container lg:col-span-2">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Distribuição de Desfechos por Tipo de Leito</h2>
+                <canvas id="desfechosPorLeitoChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Relatório do Gemini -->
+    <div id="insights-modal" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 class="text-xl font-bold text-gray-800">Relatório de Insights (via Gemini)</h2>
+                <button id="close-modal-btn" class="text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div id="modal-loading" class="flex flex-col items-center justify-center">
+                    <div class="loader"></div>
+                    <p class="mt-4 text-gray-600">A analisar os dados e a gerar o relatório...</p>
+                </div>
+                <div id="modal-result" class="hidden prose max-w-none">
+                    <!-- O conteúdo gerado será inserido aqui -->
+                </div>
+                 <div id="modal-error" class="hidden text-center text-red-600">
+                    <p>Ocorreu um erro ao gerar o relatório. Por favor, tente novamente.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// <!-- DADOS DO ARQUIVO CSV EMBUTIDOS -->
+const csvData = `
+Estabelecimento,Tipo Leito,Nº Internações,Alta Curado,% Alta Curado,Alta Melhorado,% Alta Melhorado,Óbito,% Óbito,Alta Administ,% Alta Administ,Encam US Básica,% Encam US Básica,Encam Internação,% Encam Internação,Atendimento Conclusivo,% Atendimento Conclusivo,Média de Permanência (HH:MM)
+HOSPITAL MUNICIPAL DR SILVIO ROM DE LUCENA,INTERNAÇÃO FEMININO,20,1,5,2,10,1,5,16,80,0,0,1,5,19,95,09:01
+HOSPITAL MUNICIPAL DR SILVIO ROM DE LUCENA,INTERNAÇÃO ISOLAMENTO,1,0,0,0,0,0,0,1,100,0,0,0,0,1,100,00:50
+HOSPITAL MUNICIPAL DR SILVIO ROM DE LUCENA,INTERNAÇÃO MASCULINO,17,2,11.76,1,5.88,0,0,12,70.59,0,0,0,0,17,100,18:48
+HOSPITAL MUNICIPAL DR SILVIO ROM DE LUCENA,INTERNAÇÃO PEDIÁTRICO,4,0,0,2,50,0,0,1,25,0,0,0,0,4,100,14:53
+HOSPITAL MUNICIPAL DR SILVIO ROM DE LUCENA,SALA DE OBSERVAÇÃO,3,0,0,1,33.33,0,0,2,66.67,0,0,0,0,3,100,02:16
+`;
+
+document.addEventListener('DOMContentLoaded', function() {
+    let insightsData = {};
+
+    function parseCSV(data) {
+        const lines = data.trim().split('\n');
+        const header = lines[0].split(',').map(h => h.trim());
+        const records = [];
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            const values = lines[i].split(',');
+            let record = {};
+            header.forEach((h, index) => {
+                record[h] = values[index] ? values[index].trim() : '';
+            });
+            records.push(record);
+        }
+        return records;
+    }
+    
+    // Converte HH:MM para horas decimais
+    function timeToHours(timeStr) {
+        if (!timeStr || !timeStr.includes(':')) return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours + (minutes / 60);
+    }
+
+    const data = parseCSV(csvData);
+
+    const totalInternacoes = data.reduce((sum, row) => sum + Number(row['Nº Internações']), 0);
+    const totalObitos = data.reduce((sum, row) => sum + Number(row['Óbito']), 0);
+    const taxaMortalidade = totalInternacoes > 0 ? ((totalObitos / totalInternacoes) * 100).toFixed(1) : 0;
+    const leitoMaisMov = data.reduce((prev, current) => (Number(prev['Nº Internações']) > Number(current['Nº Internações'])) ? prev : current)['Tipo Leito'];
+
+    document.getElementById('total-internacoes').textContent = totalInternacoes;
+    document.getElementById('total-obitos').textContent = totalObitos;
+    document.getElementById('taxa-mortalidade').textContent = `${taxaMortalidade}%`;
+    document.getElementById('leito-mais-mov').textContent = leitoMaisMov;
+    
+    // Prepara dados para os gráficos e para o Gemini
+    const labels = data.map(row => row['Tipo Leito']);
+    const internacoesData = data.map(row => Number(row['Nº Internações']));
+    const permanenciaData = data.map(row => timeToHours(row['Média de Permanência (HH:MM)']));
+    
+    const desfechos = {
+        'Alta Curado': data.map(row => Number(row['Alta Curado'])),
+        'Alta Melhorado': data.map(row => Number(row['Alta Melhorado'])),
+        'Óbito': data.map(row => Number(row['Óbito'])),
+        'Alta Administrativa': data.map(row => Number(row['Alta Administ'])),
+        'Encaminhamento': data.map(row => Number(row['Encam US Básica']) + Number(row['Encam Internação']))
+    };
+    
+    insightsData = {
+        totalInternacoes,
+        totalObitos,
+        taxaMortalidade,
+        leitoMaisMov,
+        detalhesPorLeito: data.map(row => ({
+            tipoLeito: row['Tipo Leito'],
+            internacoes: Number(row['Nº Internações']),
+            desfechos: {
+                curado: Number(row['Alta Curado']),
+                melhorado: Number(row['Alta Melhorado']),
+                obito: Number(row['Óbito']),
+                administrativa: Number(row['Alta Administ'])
+            },
+            mediaPermanenciaHoras: timeToHours(row['Média de Permanência (HH:MM)']).toFixed(2)
+        }))
+    };
+    
+    const backgroundColors = ['#4A90E2', '#50E3C2', '#F5A623', '#BD10E0', '#7ED321'];
+    const desfechosColors = {
+        'Alta Curado': '#22c55e', // green-500
+        'Alta Melhorado': '#84cc16', // lime-500
+        'Óbito': '#ef4444', // red-500
+        'Alta Administrativa': '#6b7280', // gray-500
+        'Encaminhamento': '#f97316' // orange-500
+    };
+
+    // Gráfico: Internações por Leito
+    new Chart(document.getElementById('internacoesPorLeitoChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Nº de Internações',
+                data: internacoesData,
+                backgroundColor: backgroundColors,
+            }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+    });
+
+    // Gráfico: Média de Permanência
+    new Chart(document.getElementById('permanenciaPorLeitoChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Média de Permanência (Horas)',
+                data: permanenciaData,
+                backgroundColor: backgroundColors,
+            }]
+        },
+        options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+
+    // Gráfico: Distribuição de Desfechos
+    new Chart(document.getElementById('desfechosPorLeitoChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: Object.keys(desfechos).map(key => ({
+                label: key,
+                data: desfechos[key],
+                backgroundColor: desfechosColors[key],
+            }))
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { stacked: true },
+                y: { stacked: true }
+            }
+        }
+    });
+    
+    // Lógica do Modal e API Gemini
+    const modal = document.getElementById('insights-modal');
+    const btnGenerate = document.getElementById('generate-insights-btn');
+    const btnClose = document.getElementById('close-modal-btn');
+    const modalLoading = document.getElementById('modal-loading');
+    const modalResult = document.getElementById('modal-result');
+    const modalError = document.getElementById('modal-error');
+    
+    const openModal = () => modal.classList.remove('hidden');
+    const closeModal = () => modal.classList.add('hidden');
+
+    btnGenerate.addEventListener('click', async () => {
+        openModal();
+        modalResult.classList.add('hidden');
+        modalError.classList.add('hidden');
+        modalLoading.classList.remove('hidden');
+
+        try {
+            const report = await generateInsightsWithGemini(insightsData);
+            modalResult.innerHTML = report.replace(/\n/g, '<br>');
+            modalLoading.classList.add('hidden');
+            modalResult.classList.remove('hidden');
+        } catch (error) {
+            console.error("Erro ao gerar relatório com Gemini:", error);
+            modalLoading.classList.add('hidden');
+            modalError.classList.remove('hidden');
+        }
+    });
+    btnClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if(e.target === modal) closeModal(); });
+
+    async function generateInsightsWithGemini(data, retries = 3, delay = 1000) {
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+        const systemPrompt = "Aja como um analista de dados de saúde altamente qualificado. A sua tarefa é analisar os dados sintéticos de internações hospitalares fornecidos e gerar um relatório de insights conciso e informativo em português (Portugal). O relatório deve resumir as principais descobertas, identificar tendências e destacar quaisquer pontos notáveis, comparando os diferentes tipos de leito. Estruture a sua resposta com um título claro, uma introdução de uma frase e, de seguida, use bullet points (marcadores) para os principais insights. Seja direto e foque-se nos dados.";
+        
+        const userQuery = `
+            Por favor, analise os seguintes dados sintéticos de internações hospitalares por tipo de leito para o período de 21 de Julho a 08 de Agosto de 2025 e gere um relatório de insights.
+
+            **Indicadores Chave de Desempenho (KPIs) Gerais:**
+            * Total de Internações: ${data.totalInternacoes}
+            * Total de Óbitos: ${data.totalObitos}
+            * Taxa de Mortalidade Geral: ${data.taxaMortalidade}%
+            * Tipo de Leito com Mais Internações: "${data.leitoMaisMov}"
+
+            **Dados Detalhados por Tipo de Leito:**
+            ${JSON.stringify(data.detalhesPorLeito, null, 2)}
+
+            Com base nestes dados, forneça a sua análise, focando em comparações entre os diferentes tipos de leito (ex: qual tem maior tempo de permanência, qual tem a maior proporção de altas administrativas, etc.).
+        `;
+        
+        const payload = {
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ parts: [{ text: userQuery }] }],
+        };
+
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    return candidate.content.parts[0].text;
+                } else {
+                    throw new Error('Resposta da API inválida ou sem conteúdo.');
+                }
+            } catch (error) {
+                console.warn(`Tentativa ${i + 1} falhou. A tentar novamente em ${delay / 1000}s...`);
+                if (i === retries - 1) throw error;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+            }
+        }
+    }
+});
+</script>
+
+</body>
+</html>
